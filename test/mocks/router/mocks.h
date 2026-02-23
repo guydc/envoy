@@ -747,6 +747,22 @@ public:
               (const));
 };
 
+class MockGenericUpstream : public GenericUpstream {
+public:
+  MockGenericUpstream();
+  ~MockGenericUpstream() override;
+
+  MOCK_METHOD(void, encodeData, (Buffer::Instance& data, bool end_stream));
+  MOCK_METHOD(void, encodeMetadata, (const Http::MetadataMapVector& metadata_map_vector));
+  MOCK_METHOD(Http::Status, encodeHeaders, (const Http::RequestHeaderMap& headers, bool end_stream));
+  MOCK_METHOD(void, encodeTrailers, (const Http::RequestTrailerMap& trailers));
+  MOCK_METHOD(void, enableTcpTunneling, ());
+  MOCK_METHOD(void, readDisable, (bool disable));
+  MOCK_METHOD(void, resetStream, ());
+  MOCK_METHOD(void, setAccount, (Buffer::BufferMemoryAccountSharedPtr account));
+  MOCK_METHOD(const StreamInfo::BytesMeterSharedPtr&, bytesMeter, ());
+};
+
 class MockGenericConnectionPoolCallbacks : public GenericConnectionPoolCallbacks {
 public:
   MockGenericConnectionPoolCallbacks();

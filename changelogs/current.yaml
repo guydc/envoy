@@ -463,5 +463,11 @@ new_features:
 - area: mcp_router
   change: |
     Added SSE response support for MCP ``prompts/list`` fanout aggregation.
+- area: ext_proc
+  change: |
+    Added :ref:`status_on_error <envoy_v3_api_field_extensions.filters.http.ext_proc.v3.ExternalProcessor.wait_for_upstream_connection>`
+    to the ``ext_proc`` HTTP filter. This allows configuring the filter to wait for upstream connection establishemnt before sending
+    processing requests to the external processor, making additional information about the upstream avaialble. This option can only be
+    used with an upsrteam HTTP ``ext_proc`` filter.
 
 deprecated:

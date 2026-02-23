@@ -109,7 +109,11 @@ protected:
         {{"envoy.reloadable_features.ext_proc_inject_data_with_state_update", "true"}});
     client_ = std::make_unique<MockClient>();
     route_ = std::make_shared<NiceMock<Router::MockRoute>>();
-    EXPECT_CALL(*client_, start(_, _, _, _)).WillOnce(Invoke(this, &HttpFilterTest::doStart));
+    if (is_upstream_filter) {
+      EXPECT_CALL(*client_, start(_, _, _, _)).Times(testing::AtMost(1)).WillOnce(Invoke(this, &HttpFilterTest::doStart));
+    } else {
+      EXPECT_CALL(*client_, start(_, _, _, _)).WillOnce(Invoke(this, &HttpFilterTest::doStart));
+    }
     EXPECT_CALL(encoder_callbacks_, dispatcher()).WillRepeatedly(ReturnRef(dispatcher_));
     EXPECT_CALL(decoder_callbacks_, dispatcher()).WillRepeatedly(ReturnRef(dispatcher_));
     EXPECT_CALL(decoder_callbacks_, route()).WillRepeatedly(Return(route_));
@@ -5955,6 +5959,167 @@ TEST_F(HttpFilterTest, GrpcCloseOnOpenStream) {
   filter_->onDestroy();
   EXPECT_EQ(Grpc::Status::Aborted, getExtProcLoggingInfo()->getGrpcStatusBeforeFirstCall());
 }
+
+// Test that the filter waits for upstream connection and processes headers after connection
+TEST_F(HttpFilterTest, WaitForUpstreamConnectionThenProcessHeaders) {
+  initialize(R"EOF(
+  grpc_service:
+    envoy_grpc:
+      cluster_name: "ext_proc_server"
+  wait_for_upstream_connection: true
+  )EOF", true);
+
+  // Setup the mock to return upstream callbacks
+  EXPECT_CALL(decoder_callbacks_, upstreamCallbacks())
+      .WillRepeatedly(Return(OptRef<Envoy::Http::UpstreamStreamFilterCallbacks>{
+          decoder_callbacks_.upstream_callbacks_}));
+
+  // Initially, upstream is not available
+  EXPECT_CALL(decoder_callbacks_.upstream_callbacks_, upstream())
+      .WillOnce(Return(OptRef<Router::GenericUpstream>{}));
+
+  // decodeHeaders should return StopAllIterationAndWatermark since upstream is not ready
+  // It should NOT open the stream or call client_->start() yet
+  EXPECT_EQ(FilterHeadersStatus::StopAllIterationAndWatermark,
+            filter_->decodeHeaders(request_headers_, false));
+
+  // Simulate upstream connection being established
+  // This should trigger processing of the headers that were waiting
+  // Since processing returns StopIteration (waiting for ext_proc response),
+  // continueDecoding() should NOT be called yet
+  filter_->onUpstreamConnectionEstablished();
+
+  // The stream should now be open and waiting for ext_proc response
+  // Process the response
+  processRequestHeaders(false, absl::nullopt);
+
+  // Continue with the rest of the request
+  Buffer::OwnedImpl req_data("foo");
+  EXPECT_EQ(FilterDataStatus::Continue, filter_->decodeData(req_data, true));
+
+  filter_->onDestroy();
+}
+
+// Test that when headers don't need processing (sendHeaders=false), continueDecoding is called
+TEST_F(HttpFilterTest, WaitForUpstreamConnectionWithSkipHeadersMode) {
+  initialize(R"EOF(
+  grpc_service:
+    envoy_grpc:
+      cluster_name: "ext_proc_server"
+  wait_for_upstream_connection: true
+  processing_mode:
+    request_header_mode: SKIP
+  )EOF", true);
+
+  // Setup the mock to return upstream callbacks
+  EXPECT_CALL(decoder_callbacks_, upstreamCallbacks())
+      .WillRepeatedly(Return(OptRef<Envoy::Http::UpstreamStreamFilterCallbacks>{
+          decoder_callbacks_.upstream_callbacks_}));
+
+  // Initially, upstream is not available
+  EXPECT_CALL(decoder_callbacks_.upstream_callbacks_, upstream())
+      .WillOnce(Return(OptRef<Router::GenericUpstream>{}));
+
+  // decodeHeaders should return StopAllIterationAndWatermark
+  EXPECT_EQ(FilterHeadersStatus::StopAllIterationAndWatermark,
+            filter_->decodeHeaders(request_headers_, false));
+
+  // When upstream connection is established and headers are skipped (not sent to ext_proc),
+  // processDecodingHeaders returns Continue, so continueDecoding() should be called
+  EXPECT_CALL(decoder_callbacks_, continueDecoding());
+  filter_->onUpstreamConnectionEstablished();
+
+  filter_->onDestroy();
+}
+
+// Test that end_stream flag is preserved when waiting for upstream connection
+TEST_F(HttpFilterTest, WaitForUpstreamConnectionPreservesEndStream) {
+  initialize(R"EOF(
+  grpc_service:
+    envoy_grpc:
+      cluster_name: "ext_proc_server"
+  wait_for_upstream_connection: true
+  )EOF", true);
+
+  // Setup the mock to return upstream callbacks
+  EXPECT_CALL(decoder_callbacks_, upstreamCallbacks())
+      .WillRepeatedly(Return(OptRef<Envoy::Http::UpstreamStreamFilterCallbacks>{
+          decoder_callbacks_.upstream_callbacks_}));
+
+  // Initially, upstream is not available
+  EXPECT_CALL(decoder_callbacks_.upstream_callbacks_, upstream())
+      .WillOnce(Return(OptRef<Router::GenericUpstream>{}));
+
+  // Call decodeHeaders with end_stream=true (no body will follow)
+  EXPECT_EQ(FilterHeadersStatus::StopAllIterationAndWatermark,
+            filter_->decodeHeaders(request_headers_, true));
+
+  // When upstream connection is established, the filter should process headers
+  // with the correct end_stream=true flag preserved
+  filter_->onUpstreamConnectionEstablished();
+
+  // Verify the processing happened with end_stream=true by checking the request sent
+  // Use false for buffering_data since end_stream=true means no body to buffer
+  processRequestHeaders(false, [](const HttpHeaders& headers, ProcessingResponse&, HeadersResponse&) {
+    // Verify end_of_stream is set correctly in the request
+    EXPECT_TRUE(headers.end_of_stream());
+  });
+
+  filter_->onDestroy();
+}
+
+// Test that when upstream is already established before headers, the filter continues normally
+TEST_F(HttpFilterTest, UpstreamAlreadyEstablishedBeforeHeaders) {
+  initialize(R"EOF(
+  grpc_service:
+    envoy_grpc:
+      cluster_name: "ext_proc_server"
+  wait_for_upstream_connection: true
+  )EOF", true);
+
+  // Setup the mock to return upstream callbacks
+  EXPECT_CALL(decoder_callbacks_, upstreamCallbacks())
+      .WillRepeatedly(Return(OptRef<Envoy::Http::UpstreamStreamFilterCallbacks>{
+          decoder_callbacks_.upstream_callbacks_}));
+
+  // Upstream is already available
+  NiceMock<Router::MockGenericUpstream> mock_upstream;
+  EXPECT_CALL(decoder_callbacks_.upstream_callbacks_, upstream())
+      .WillOnce(Return(OptRef<Router::GenericUpstream>{mock_upstream}));
+
+  // decodeHeaders should proceed normally since upstream is already established
+  EXPECT_EQ(FilterHeadersStatus::StopIteration,
+            filter_->decodeHeaders(request_headers_, false));
+
+  processRequestHeaders(false, absl::nullopt);
+
+  Buffer::OwnedImpl req_data("foo");
+  EXPECT_EQ(FilterDataStatus::Continue, filter_->decodeData(req_data, true));
+
+  filter_->onDestroy();
+}
+
+// Test that when wait_for_upstream_connection is false, the filter doesn't wait
+TEST_F(HttpFilterTest, NoWaitForUpstreamConnection) {
+  initialize(R"EOF(
+  grpc_service:
+    envoy_grpc:
+      cluster_name: "ext_proc_server"
+  wait_for_upstream_connection: false
+  )EOF");
+
+  // decodeHeaders should proceed normally without checking upstream
+  EXPECT_EQ(FilterHeadersStatus::StopIteration,
+            filter_->decodeHeaders(request_headers_, false));
+
+  processRequestHeaders(false, absl::nullopt);
+
+  Buffer::OwnedImpl req_data("foo");
+  EXPECT_EQ(FilterDataStatus::Continue, filter_->decodeData(req_data, true));
+
+  filter_->onDestroy();
+}
+
 
 } // namespace
 } // namespace ExternalProcessing

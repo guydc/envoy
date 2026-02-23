@@ -54,7 +54,7 @@ absl::Status verifyProcessingModeConfig(
 }
 
 absl::Status verifyFilterConfig(
-    const envoy::extensions::filters::http::ext_proc::v3::ExternalProcessor& config) {
+    const envoy::extensions::filters::http::ext_proc::v3::ExternalProcessor& config, const bool is_upstream) {
   if (config.has_grpc_service() == config.has_http_service()) {
     return absl::InvalidArgumentError(
         "One and only one of grpc_service or http_service must be configured");
@@ -65,6 +65,11 @@ absl::Status verifyFilterConfig(
        envoy::extensions::filters::http::ext_proc::v3::ExternalProcessor::DEFAULT)) {
     return absl::InvalidArgumentError("disable_clear_route_cache and route_cache_action can not "
                                       "be set to none-default at the same time.");
+  }
+
+  if (!is_upstream && config.wait_for_upstream_connection()) {
+    return absl::InvalidArgumentError("wait_for_upstream_connection can only be enabled when filter "
+                                "is used as an upstream filter.");
   }
 
   return verifyProcessingModeConfig(config);
@@ -78,7 +83,7 @@ ExternalProcessingFilterConfig::createFilterFactoryFromProtoTyped(
     const std::string& stats_prefix, DualInfo dual_info,
     Server::Configuration::ServerFactoryContext& context) {
   // Verify configuration before creating FilterConfig
-  absl::Status result = verifyFilterConfig(proto_config);
+  absl::Status result = verifyFilterConfig(proto_config, dual_info.is_upstream);
   if (!result.ok()) {
     return result;
   }
@@ -125,7 +130,7 @@ ExternalProcessingFilterConfig::createFilterFactoryFromProtoWithServerContextTyp
     const envoy::extensions::filters::http::ext_proc::v3::ExternalProcessor& proto_config,
     const std::string& stats_prefix, Server::Configuration::ServerFactoryContext& server_context) {
   // Verify configuration before creating FilterConfig
-  absl::Status result = verifyFilterConfig(proto_config);
+  absl::Status result = verifyFilterConfig(proto_config, false);
   if (!result.ok()) {
     throw EnvoyException(std::string(result.message()));
   }

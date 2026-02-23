@@ -330,6 +330,8 @@ public:
 
   Http::Code statusOnError() const { return status_on_error_; }
 
+  bool waitForUpstreamConnection() const { return wait_for_upstream_connection_; }
+
   std::unique_ptr<ProcessingRequestModifier> createProcessingRequestModifier() const;
 
 private:
@@ -395,6 +397,7 @@ private:
   ThreadLocal::SlotPtr thread_local_stream_manager_slot_;
   const std::chrono::milliseconds remote_close_timeout_;
   const Http::Code status_on_error_;
+  bool wait_for_upstream_connection_;
 };
 
 using FilterConfigSharedPtr = std::shared_ptr<FilterConfig>;
@@ -477,7 +480,8 @@ private:
 
 class Filter : public Logger::Loggable<Logger::Id::ext_proc>,
                public Http::PassThroughFilter,
-               public ExternalProcessorCallbacks {
+               public ExternalProcessorCallbacks,
+               public Http::UpstreamCallbacks {
   // The result of an attempt to open the stream
   enum class StreamOpenState {
     // The stream was opened successfully
@@ -526,6 +530,8 @@ public:
 
   Http::FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap& headers,
                                           bool end_stream) override;
+
+  void onUpstreamConnectionEstablished() override;
   Http::FilterDataStatus decodeData(Buffer::Instance& data, bool end_stream) override;
   Http::FilterTrailersStatus decodeTrailers(Http::RequestTrailerMap& trailers) override;
 
@@ -586,6 +592,7 @@ private:
   void mergePerRouteConfig();
   StreamOpenState openStream();
   void closeStream();
+  Http::FilterHeadersStatus processDecodingHeaders(Http::RequestHeaderMap& headers, bool end_stream);
   void halfCloseAndWaitForRemoteClose();
   void logFailOpen();
 
@@ -705,6 +712,11 @@ private:
 
   // If true, the protocol configurations are already sent to the server.
   bool protocol_config_encoded_ = false;
+
+  // Wether the filter is waiting for upstream connection to be established before continuing.
+  bool waiting_for_upstream_connection_ = false;
+  // Stored end_stream flag from decodeHeaders when waiting for upstream connection.
+  bool pending_end_stream_ = false;
 };
 
 extern std::string responseCaseToString(

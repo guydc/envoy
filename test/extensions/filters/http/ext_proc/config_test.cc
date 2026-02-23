@@ -568,6 +568,36 @@ TEST(HttpExtProcConfigTest, StatusOnErrorDefaultConfig) {
   cb(filter_callback);
 }
 
+TEST(HttpExtProcConfigTest, WaitForUpstreamConnection) {
+  std::string yaml = R"EOF(
+  grpc_service:
+    google_grpc:
+      target_uri: ext_proc_server
+      stat_prefix: google
+  wait_for_upstream_connection: true
+  )EOF";
+
+  ExternalProcessingFilterConfig factory;
+  ProtobufTypes::MessagePtr proto_config = factory.createEmptyConfigProto();
+  TestUtility::loadFromYaml(yaml, *proto_config);
+
+  testing::NiceMock<Server::Configuration::MockUpstreamFactoryContext> upstreamContext;
+
+  Http::FilterFactoryCb cb =
+      factory.createFilterFactoryFromProto(*proto_config, "stats", upstreamContext).value();
+  Http::MockFilterChainFactoryCallbacks filter_callback;
+  EXPECT_CALL(filter_callback, addStreamFilter(_));
+  cb(filter_callback);
+
+  testing::NiceMock<Server::Configuration::MockFactoryContext> downstreamContext;
+  EXPECT_CALL(downstreamContext, messageValidationVisitor());
+  auto invalid_result = factory.createFilterFactoryFromProto(*proto_config, "stats", downstreamContext);
+  EXPECT_FALSE(invalid_result.ok());
+  EXPECT_EQ(invalid_result.status().message(),
+            "wait_for_upstream_connection can only be enabled when filter "
+            "is used as an upstream filter.");
+}
+
 } // namespace
 } // namespace ExternalProcessing
 } // namespace HttpFilters

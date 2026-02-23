@@ -305,7 +305,8 @@ FilterConfig::FilterConfig(const ExternalProcessor& config,
       thread_local_stream_manager_slot_(context.threadLocal().allocateSlot()),
       remote_close_timeout_(context.runtime().snapshot().getInteger(
           RemoteCloseTimeout, DefaultRemoteCloseTimeoutMilliseconds)),
-      status_on_error_(toErrorCode(config.status_on_error().code())) {
+      status_on_error_(toErrorCode(config.status_on_error().code())),
+      wait_for_upstream_connection_(config.wait_for_upstream_connection()){
   if (config.disable_clear_route_cache()) {
     route_cache_action_ = ExternalProcessor::RETAIN;
   }
@@ -693,6 +694,12 @@ void Filter::setDecoderFilterCallbacks(Http::StreamDecoderFilterCallbacks& callb
                           Envoy::StreamInfo::FilterState::StateType::Mutable,
                           Envoy::StreamInfo::FilterState::LifeSpan::Request);
   }
+  ENVOY_LOG(trace, "setDecoderFilterCallbacks: waitForUpstreamConnection {}", config_->waitForUpstreamConnection());
+  if (config_->waitForUpstreamConnection()) {
+    ASSERT(filter_callbacks_->upstreamCallbacks());
+    ENVOY_LOG(trace, "setDecoderFilterCallbacks: set upstream");
+    filter_callbacks_->upstreamCallbacks()->addUpstreamCallbacks(*this);
+  }
   logging_info_ = filter_state->getDataMutable<ExtProcLoggingInfo>(callbacks.filterConfigName());
 }
 
@@ -903,9 +910,10 @@ FilterHeadersStatus Filter::onHeaders(ProcessorState& state,
   return FilterHeadersStatus::StopIteration;
 }
 
-FilterHeadersStatus Filter::decodeHeaders(RequestHeaderMap& headers, bool end_stream) {
-  ENVOY_STREAM_LOG(trace, "decodeHeaders: end_stream = {}", *decoder_callbacks_, end_stream);
-  mergePerRouteConfig();
+FilterHeadersStatus Filter::processDecodingHeaders(RequestHeaderMap& headers, bool end_stream) {
+  // This is called either directly from decodeHeaders (when upstream is ready)
+  // or from onUpstreamConnectionEstablished (when we were waiting for upstream).
+  // It contains all the header processing logic that needs to run regardless.
 
   // Send headers in observability mode.
   if (decoding_state_.sendHeaders() && config_->observabilityMode()) {
@@ -915,11 +923,6 @@ FilterHeadersStatus Filter::decodeHeaders(RequestHeaderMap& headers, bool end_st
   if (end_stream) {
     decoding_state_.setCompleteBodyAvailable(true);
   }
-
-  // Set the request headers on decoding and encoding state in case they are
-  // needed later.
-  decoding_state_.setRequestHeaders(&headers);
-  encoding_state_.setRequestHeaders(&headers);
 
   FilterHeadersStatus status = FilterHeadersStatus::Continue;
   if (decoding_state_.sendHeaders()) {
@@ -934,6 +937,54 @@ FilterHeadersStatus Filter::decodeHeaders(RequestHeaderMap& headers, bool end_st
     headers.removeContentLength();
   }
   return status;
+}
+
+FilterHeadersStatus Filter::decodeHeaders(RequestHeaderMap& headers, bool end_stream) {
+  ENVOY_STREAM_LOG(trace, "decodeHeaders: end_stream = {}", *decoder_callbacks_, end_stream);
+  mergePerRouteConfig();
+
+  // Always set the request headers on decoding and encoding state early
+  // so they're available for later processing
+  decoding_state_.setRequestHeaders(&headers);
+  encoding_state_.setRequestHeaders(&headers);
+
+  if (config_->waitForUpstreamConnection()) {
+      ENVOY_STREAM_LOG(trace, "decodeHeaders: wait for upstream connection", *decoder_callbacks_, end_stream);
+      if (decoder_callbacks_->upstreamCallbacks()) {
+        ENVOY_STREAM_LOG(trace, "decodeHeaders: has upstream callbacks", *decoder_callbacks_, end_stream);
+        if (!decoder_callbacks_->upstreamCallbacks()->upstream()) {
+          ENVOY_STREAM_LOG(trace, "decodeHeaders: stop iteration until connection established", *decoder_callbacks_);
+          waiting_for_upstream_connection_ = true;
+          pending_end_stream_ = end_stream;
+          return Http::FilterHeadersStatus::StopAllIterationAndWatermark;
+      }
+    }
+  }
+
+  return processDecodingHeaders(headers, end_stream);
+}
+
+void Filter::onUpstreamConnectionEstablished() {
+  if (config_->waitForUpstreamConnection() && waiting_for_upstream_connection_) {
+    ENVOY_STREAM_LOG(trace, "onUpstreamConnectionEstablished: processing headers now", *decoder_callbacks_);
+    waiting_for_upstream_connection_ = false;
+
+    // Get mutable headers from decoding_state_ - they were stored in decodeHeaders
+    Http::RequestHeaderMap* headers = const_cast<Http::RequestHeaderMap*>(decoding_state_.requestHeaders());
+    ASSERT(headers != nullptr, "Request headers must be available");
+
+    // Process the headers that were waiting - this opens the stream and sends to ext_proc
+    FilterHeadersStatus status = processDecodingHeaders(*headers, pending_end_stream_);
+
+    // If processing returned StopIteration, the filter will wait for ext_proc response
+    // continueDecoding() will be called later when the response arrives
+    // If it returned Continue, we need to continue the filter chain now
+    if (status == FilterHeadersStatus::Continue) {
+      decoder_callbacks_->continueDecoding();
+    }
+    // Note: StopIteration and similar statuses don't need continueDecoding() here
+    // because the filter will call it later when the ext_proc response arrives
+  }
 }
 
 FilterDataStatus Filter::handleDataBufferedMode(ProcessorState& state, Buffer::Instance& data,

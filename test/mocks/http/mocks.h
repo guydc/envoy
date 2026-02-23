@@ -244,6 +244,26 @@ public:
   MOCK_METHOD(void, removeDownstreamWatermarkCallbacks, (DownstreamWatermarkCallbacks&));
 };
 
+class MockUpstreamStreamFilterCallbacks : public UpstreamStreamFilterCallbacks {
+public:
+  MockUpstreamStreamFilterCallbacks();
+  ~MockUpstreamStreamFilterCallbacks() override;
+
+  MOCK_METHOD(StreamInfo::StreamInfo&, upstreamStreamInfo, ());
+  MOCK_METHOD(OptRef<Router::GenericUpstream>, upstream, ());
+  MOCK_METHOD(void, dumpState, (std::ostream&, int), (const));
+  MOCK_METHOD(bool, pausedForConnect, (), (const));
+  MOCK_METHOD(void, setPausedForConnect, (bool));
+  MOCK_METHOD(bool, pausedForWebsocketUpgrade, (), (const));
+  MOCK_METHOD(void, setPausedForWebsocketUpgrade, (bool));
+  MOCK_METHOD(void, disableRouteTimeoutForWebsocketUpgrade, ());
+  MOCK_METHOD(void, disablePerTryTimeoutForWebsocketUpgrade, ());
+  MOCK_METHOD(const Http::ConnectionPool::Instance::StreamOptions&, upstreamStreamOptions, (),
+              (const));
+  MOCK_METHOD(void, addUpstreamCallbacks, (UpstreamCallbacks&));
+  MOCK_METHOD(void, setUpstreamToDownstream, (Router::UpstreamToDownstream&));
+};
+
 class MockStreamDecoderFilterCallbacks : public StreamDecoderFilterCallbacks,
                                          public MockStreamFilterCallbacksBase {
 public:
@@ -337,6 +357,7 @@ public:
   Buffer::InstancePtr buffer_;
   std::list<DownstreamWatermarkCallbacks*> callbacks_;
   testing::NiceMock<MockDownstreamStreamFilterCallbacks> downstream_callbacks_;
+  testing::NiceMock<MockUpstreamStreamFilterCallbacks> upstream_callbacks_;
   testing::NiceMock<Tracing::MockSpan> active_span_;
   testing::NiceMock<Tracing::MockConfig> tracing_config_;
   testing::NiceMock<MockScopeTrackedObject> scope_;
@@ -399,6 +420,7 @@ public:
 
   Buffer::InstancePtr buffer_;
   testing::NiceMock<MockDownstreamStreamFilterCallbacks> downstream_callbacks_;
+  testing::NiceMock<MockUpstreamStreamFilterCallbacks> upstream_callbacks_;
   testing::NiceMock<Tracing::MockSpan> active_span_;
   testing::NiceMock<Tracing::MockConfig> tracing_config_;
   testing::NiceMock<MockScopeTrackedObject> scope_;

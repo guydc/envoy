@@ -1784,6 +1784,220 @@ TEST_P(ExtProcIntegrationTestUpstream, RouterRetrySendTrailers) {
   testRouterRetryWithExtProcUpstream(/*send_body*/ false);
 }
 
+// Test that when wait_for_upstream_connection is enabled on an upstream filter,
+// upstream attributes (address, port) are guaranteed to be available in request_headers
+TEST_P(ExtProcIntegrationTestUpstream, WaitForUpstreamConnectionWithAttributes) {
+  proto_config_.mutable_processing_mode()->set_request_header_mode(ProcessingMode::SEND);
+  proto_config_.mutable_processing_mode()->set_response_header_mode(ProcessingMode::SEND);
+  proto_config_.set_wait_for_upstream_connection(true);
+  // Request upstream attributes that are only available after upstream connection
+  proto_config_.mutable_request_attributes()->Add("upstream.address");
+  proto_config_.mutable_request_attributes()->Add("upstream.port");
+  proto_config_.mutable_request_attributes()->Add("request.path");
+
+  initializeConfig();
+  HttpIntegrationTest::initialize();
+  auto response = sendDownstreamRequest(absl::nullopt);
+
+  // Verify that ext_proc filter has NOT opened the gRPC stream yet
+  // because it's waiting for upstream connection (should timeout)
+  EXPECT_FALSE(grpc_upstreams_[0]->waitForHttpConnection(*dispatcher_, processor_connection_,
+                                                         std::chrono::milliseconds(100)));
+
+  // NOW establish the upstream connection - this triggers filter to process headers
+  ASSERT_TRUE(fake_upstreams_[0]->waitForHttpConnection(*dispatcher_, fake_upstream_connection_));
+  ASSERT_TRUE(fake_upstream_connection_->waitForNewStream(*dispatcher_, upstream_request_));
+  ASSERT_TRUE(upstream_request_->waitForEndStream(*dispatcher_));
+
+  // NOW the filter opens the gRPC stream and sends the request_headers message
+  ProcessingRequest req;
+  ASSERT_TRUE(grpc_upstreams_[0]->waitForHttpConnection(*dispatcher_, processor_connection_));
+  ASSERT_TRUE(processor_connection_->waitForNewStream(*dispatcher_, processor_stream_));
+  ASSERT_TRUE(processor_stream_->waitForGrpcMessage(*dispatcher_, req));
+  processor_stream_->startGrpcStream();
+
+  // Verify the message includes upstream attributes
+  EXPECT_TRUE(req.has_request_headers());
+  EXPECT_EQ(req.attributes().size(), 1);
+  auto proto_struct = req.attributes().at("envoy.filters.http.ext_proc");
+
+  // Verify upstream attributes are present and valid
+  EXPECT_TRUE(proto_struct.fields().contains("upstream.address"));
+  EXPECT_TRUE(proto_struct.fields().contains("upstream.port"));
+  EXPECT_EQ(proto_struct.fields().at("request.path").string_value(), "/");
+
+  auto upstream_addr_str = proto_struct.fields().at("upstream.address").string_value();
+  EXPECT_FALSE(upstream_addr_str.empty());
+  EXPECT_GT(proto_struct.fields().at("upstream.port").number_value(), 0);
+
+  // Send response
+  ProcessingResponse resp;
+  resp.mutable_request_headers();
+  processor_stream_->sendGrpcMessage(resp);
+
+  // Send upstream response
+  upstream_request_->encodeHeaders(Http::TestResponseHeaderMapImpl{{":status", "200"}}, false);
+  upstream_request_->encodeData(100, true);
+
+  // Handle response headers message
+  processGenericMessage(
+      *grpc_upstreams_[0], false, [](const ProcessingRequest& req, ProcessingResponse& resp) {
+        resp.mutable_response_headers();
+        EXPECT_TRUE(req.has_response_headers());
+        return true;
+      });
+
+  verifyDownstreamResponse(*response, 200);
+}
+
+// Test that when wait_for_upstream_connection is enabled with upstream TLS,
+// the filter waits for TLS handshake completion, ensuring TLS attributes
+// including peer certificate are available in request_headers
+TEST_P(ExtProcIntegrationTestUpstream, WaitForUpstreamConnectionWithTlsAttributes) {
+  // Enable upstream TLS
+  upstream_tls_ = true;
+  config_helper_.configureUpstreamTls();
+
+  proto_config_.mutable_processing_mode()->set_request_header_mode(ProcessingMode::SEND);
+  proto_config_.mutable_processing_mode()->set_response_header_mode(ProcessingMode::SEND);
+  proto_config_.set_wait_for_upstream_connection(true);
+  // Request upstream TLS attributes that are only available after upstream TLS connection
+  proto_config_.mutable_request_attributes()->Add("upstream.address");
+  proto_config_.mutable_request_attributes()->Add("upstream.port");
+  proto_config_.mutable_request_attributes()->Add("upstream.tls_version");
+  proto_config_.mutable_request_attributes()->Add("upstream.subject_peer_certificate");
+  proto_config_.mutable_request_attributes()->Add("upstream.subject_local_certificate");
+  proto_config_.mutable_request_attributes()->Add("request.path");
+
+  initializeConfig();
+  HttpIntegrationTest::initialize();
+  auto response = sendDownstreamRequest(absl::nullopt);
+
+  // Verify that ext_proc filter has NOT opened the gRPC stream yet
+  // because it's waiting for upstream TLS connection (should timeout)
+  EXPECT_FALSE(grpc_upstreams_[0]->waitForHttpConnection(*dispatcher_, processor_connection_,
+                                                         std::chrono::milliseconds(100)));
+
+  // NOW complete the upstream TLS connection - this triggers filter to process headers
+  ASSERT_TRUE(fake_upstreams_[0]->waitForHttpConnection(*dispatcher_, fake_upstream_connection_));
+  ASSERT_TRUE(fake_upstream_connection_->waitForNewStream(*dispatcher_, upstream_request_));
+  ASSERT_TRUE(upstream_request_->waitForEndStream(*dispatcher_));
+
+  // NOW the filter opens the gRPC stream and sends request_headers with TLS attributes
+  ProcessingRequest req;
+  ASSERT_TRUE(grpc_upstreams_[0]->waitForHttpConnection(*dispatcher_, processor_connection_));
+  ASSERT_TRUE(processor_connection_->waitForNewStream(*dispatcher_, processor_stream_));
+  ASSERT_TRUE(processor_stream_->waitForGrpcMessage(*dispatcher_, req));
+  processor_stream_->startGrpcStream();
+
+  // Verify the message includes upstream TLS attributes
+  EXPECT_TRUE(req.has_request_headers());
+  EXPECT_EQ(req.attributes().size(), 1);
+  auto proto_struct = req.attributes().at("envoy.filters.http.ext_proc");
+
+  // Verify basic upstream attributes
+  EXPECT_TRUE(proto_struct.fields().contains("upstream.address"));
+  EXPECT_TRUE(proto_struct.fields().contains("upstream.port"));
+  EXPECT_FALSE(proto_struct.fields().at("upstream.address").string_value().empty());
+  EXPECT_GT(proto_struct.fields().at("upstream.port").number_value(), 0);
+
+  // Verify TLS-related attributes are present
+  EXPECT_TRUE(proto_struct.fields().contains("upstream.tls_version"));
+  auto tls_version = proto_struct.fields().at("upstream.tls_version").string_value();
+  EXPECT_FALSE(tls_version.empty());
+  EXPECT_TRUE(tls_version.find("TLS") != std::string::npos) << "TLS version: " << tls_version;
+
+  // Verify peer certificate subject is present and valid
+  EXPECT_TRUE(proto_struct.fields().contains("upstream.subject_peer_certificate"));
+  auto peer_subject = proto_struct.fields().at("upstream.subject_peer_certificate").string_value();
+  EXPECT_FALSE(peer_subject.empty());
+  // The test certificate has "CN=Test Backend Team" in the subject
+  EXPECT_TRUE(peer_subject.find("CN=Test Backend Team") != std::string::npos)
+      << "Peer subject: " << peer_subject;
+
+  // Verify local certificate subject is present
+  EXPECT_TRUE(proto_struct.fields().contains("upstream.subject_local_certificate"));
+  auto local_subject = proto_struct.fields().at("upstream.subject_local_certificate").string_value();
+  EXPECT_FALSE(local_subject.empty());
+
+  EXPECT_EQ(proto_struct.fields().at("request.path").string_value(), "/");
+
+  // Send response
+  ProcessingResponse resp;
+  resp.mutable_request_headers();
+  processor_stream_->sendGrpcMessage(resp);
+
+  // Send upstream response
+  upstream_request_->encodeHeaders(Http::TestResponseHeaderMapImpl{{":status", "200"}}, false);
+  upstream_request_->encodeData(100, true);
+
+  // Handle response headers message
+  processGenericMessage(
+      *grpc_upstreams_[0], false, [](const ProcessingRequest& req, ProcessingResponse& resp) {
+        resp.mutable_response_headers();
+        EXPECT_TRUE(req.has_response_headers());
+        return true;
+      });
+
+  verifyDownstreamResponse(*response, 200);
+}
+
+// Test that without wait_for_upstream_connection on upstream filter,
+// upstream attributes are NOT guaranteed to be available during request_headers processing.
+// We control timing to ensure connection is NOT established when ext_proc processes headers.
+TEST_P(ExtProcIntegrationTestUpstream, NoWaitForUpstreamConnectionMissingAttributes) {
+  proto_config_.mutable_processing_mode()->set_request_header_mode(ProcessingMode::SEND);
+  proto_config_.mutable_processing_mode()->set_response_header_mode(ProcessingMode::SEND);
+  proto_config_.set_wait_for_upstream_connection(false);
+  // Request upstream attributes - without wait_for_upstream_connection, these won't be available
+  // if we process the ext_proc message before the upstream connection completes
+  proto_config_.mutable_request_attributes()->Add("upstream.address");
+  proto_config_.mutable_request_attributes()->Add("upstream.port");
+  proto_config_.mutable_request_attributes()->Add("request.path");
+
+  initializeConfig();
+  HttpIntegrationTest::initialize();
+  auto response = sendDownstreamRequest(absl::nullopt);
+
+  // Process ext_proc request_headers message BEFORE accepting the upstream connection
+  // This ensures we check the state when upstream is definitely NOT connected yet
+  processGenericMessage(
+      *grpc_upstreams_[0], true, [](const ProcessingRequest& req, ProcessingResponse& resp) {
+        resp.mutable_request_headers();
+
+        EXPECT_TRUE(req.has_request_headers());
+        EXPECT_EQ(req.attributes().size(), 1);
+        auto proto_struct = req.attributes().at("envoy.filters.http.ext_proc");
+
+        // Upstream attributes should NOT be available since connection isn't established yet
+        EXPECT_FALSE(proto_struct.fields().contains("upstream.address"));
+        EXPECT_FALSE(proto_struct.fields().contains("upstream.port"));
+
+        // But request.path should be available
+        EXPECT_TRUE(proto_struct.fields().contains("request.path"));
+        EXPECT_EQ(proto_struct.fields().at("request.path").string_value(), "/");
+
+        return true;
+      });
+
+  // NOW accept and handle the upstream connection
+  ASSERT_TRUE(fake_upstreams_[0]->waitForHttpConnection(*dispatcher_, fake_upstream_connection_));
+  ASSERT_TRUE(fake_upstream_connection_->waitForNewStream(*dispatcher_, upstream_request_));
+  ASSERT_TRUE(upstream_request_->waitForEndStream(*dispatcher_));
+  upstream_request_->encodeHeaders(Http::TestResponseHeaderMapImpl{{":status", "200"}}, false);
+  upstream_request_->encodeData(100, true);
+
+  // Handle response headers message
+  processGenericMessage(
+      *grpc_upstreams_[0], false, [](const ProcessingRequest& req, ProcessingResponse& resp) {
+        resp.mutable_response_headers();
+        EXPECT_TRUE(req.has_response_headers());
+        return true;
+      });
+
+  verifyDownstreamResponse(*response, 200);
+}
+
 TEST_P(ExtProcIntegrationTest, GetAndRespondImmediatelyGracefulClose) {
   scoped_runtime_.mergeValues({{"envoy.reloadable_features.ext_proc_graceful_grpc_close", "true"}});
   // Make remote close timeout long, so that test times out and fails if it is hit.

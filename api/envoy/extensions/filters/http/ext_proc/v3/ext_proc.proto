@@ -98,7 +98,7 @@ option (udpa.annotations.file_status).package_version_status = ACTIVE;
 // <arch_overview_advanced_filter_state_sharing>` object in a namespace matching the filter
 // name.
 //
-// [#next-free-field: 26]
+// [#next-free-field: 27]
 message ExternalProcessor {
   // Describes the route cache action to be taken when an external processor response
   // is received in response to request headers.
@@ -361,6 +361,10 @@ message ExternalProcessor {
   //
   // The default status is ``HTTP 500 Internal Server Error``.
   type.v3.HttpStatus status_on_error = 24;
+
+  // Send prcocessing requests only after the upstream connection was established.
+  // This flag is only relevent when the filter is used as an upstream HTTP filter.
+  bool wait_for_upstream_connection = 26;
 }
 
 // ExtProcHttpService is used for HTTP communication between the filter and the external processing service.
