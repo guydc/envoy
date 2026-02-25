@@ -116,7 +116,8 @@ public:
   // GenericConnPool
   void onPoolFailure(ConnectionPool::PoolFailureReason reason,
                      absl::string_view transport_failure_reason,
-                     Upstream::HostDescriptionConstSharedPtr host) override;
+                     Upstream::HostDescriptionConstSharedPtr host,
+                     Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr) override;
   void onPoolReady(std::unique_ptr<GenericUpstream>&& upstream,
                    Upstream::HostDescriptionConstSharedPtr host,
                    const Network::ConnectionInfoProvider& address_provider,

@@ -313,7 +313,8 @@ void Router::UpstreamRequest::encodeData(Buffer::Instance& data) {
 
 void Router::UpstreamRequest::onPoolFailure(ConnectionPool::PoolFailureReason reason,
                                             absl::string_view,
-                                            Upstream::HostDescriptionConstSharedPtr host) {
+                                            Upstream::HostDescriptionConstSharedPtr host,
+                                            Ssl::ConnectionInfoConstSharedPtr) {
   conn_pool_handle_ = nullptr;
 
   // Mimic an upstream reset.

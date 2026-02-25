@@ -66,7 +66,8 @@ void UpstreamRequest::resetStream() {
 }
 
 void UpstreamRequest::onPoolFailure(ConnectionPool::PoolFailureReason reason, absl::string_view,
-                                    Upstream::HostDescriptionConstSharedPtr host) {
+                                    Upstream::HostDescriptionConstSharedPtr host,
+                                    Ssl::ConnectionInfoConstSharedPtr) {
   ENVOY_LOG(debug, "on pool failure");
   conn_pool_handle_ = nullptr;
 

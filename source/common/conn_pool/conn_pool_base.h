@@ -61,6 +61,10 @@ public:
   // Returns the application protocol, or absl::nullopt for TCP.
   virtual absl::optional<Http::Protocol> protocol() const PURE;
 
+  // Returns the SSL connection info if available, or nullptr otherwise.
+  // This allows access to TLS information even on connection failures.
+  virtual Ssl::ConnectionInfoConstSharedPtr sslConnectionInfo() const PURE;
+
   virtual int64_t currentUnusedCapacity() const {
     int64_t remaining_concurrent_streams =
         static_cast<int64_t>(concurrent_stream_limit_) - numActiveStreams();
@@ -238,7 +242,8 @@ public:
   // Fails all pending streams, calling onPoolFailure on the associated callbacks.
   void purgePendingStreams(const Upstream::HostDescriptionConstSharedPtr& host_description,
                            absl::string_view failure_reason,
-                           ConnectionPool::PoolFailureReason pool_failure_reason);
+                           ConnectionPool::PoolFailureReason pool_failure_reason,
+                           Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr);
 
   // Closes any idle connections as this pool is drained.
   void closeIdleConnectionsForDrainingPool();
@@ -267,7 +272,8 @@ public:
   virtual void onPoolFailure(const Upstream::HostDescriptionConstSharedPtr& host_description,
                              absl::string_view failure_reason,
                              ConnectionPool::PoolFailureReason pool_failure_reason,
-                             AttachContext& context) PURE;
+                             AttachContext& context,
+                             Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr) PURE;
   virtual void onPoolReady(ActiveClient& client, AttachContext& context) PURE;
   // Called by derived classes any time a stream is completed or destroyed for any reason.
   void onStreamClosed(Envoy::ConnectionPool::ActiveClient& client, bool delay_attaching_stream);

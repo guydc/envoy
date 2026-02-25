@@ -849,7 +849,8 @@ bool Filter::maybeTunnel(Upstream::ThreadLocalCluster& cluster) {
 
 void Filter::onGenericPoolFailure(ConnectionPool::PoolFailureReason reason,
                                   absl::string_view failure_reason,
-                                  Upstream::HostDescriptionConstSharedPtr host) {
+                                  Upstream::HostDescriptionConstSharedPtr host,
+                                  Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   if (Runtime::runtimeFeatureEnabled(
           "envoy.restart_features.upstream_http_filters_with_tcp_proxy")) {
     // generic_conn_pool_ is an instance of TcpProxy::HttpConnPool.
@@ -865,6 +866,13 @@ void Filter::onGenericPoolFailure(ConnectionPool::PoolFailureReason reason,
 
   read_callbacks_->upstreamHost(host);
   getStreamInfo().upstreamInfo()->setUpstreamHost(host);
+
+  // Store upstream SSL connection info if available, even on failure
+  // This allows access logs and observability to inspect TLS info when validation fails
+  if (ssl_info) {
+    getStreamInfo().upstreamInfo()->setUpstreamSslConnection(ssl_info);
+  }
+
   getStreamInfo().upstreamInfo()->setUpstreamTransportFailureReason(failure_reason);
 
   switch (reason) {

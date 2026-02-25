@@ -314,9 +314,10 @@ void TcpConnPool::newStream(GenericConnectionPoolCallbacks& callbacks) {
 
 void TcpConnPool::onPoolFailure(ConnectionPool::PoolFailureReason reason,
                                 absl::string_view failure_reason,
-                                Upstream::HostDescriptionConstSharedPtr host) {
+                                Upstream::HostDescriptionConstSharedPtr host,
+                                Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   upstream_handle_ = nullptr;
-  callbacks_->onGenericPoolFailure(reason, failure_reason, host);
+  callbacks_->onGenericPoolFailure(reason, failure_reason, host, ssl_info);
 }
 
 void TcpConnPool::onPoolReady(Tcp::ConnectionPool::ConnectionDataPtr&& conn_data,
@@ -420,9 +421,10 @@ void HttpConnPool::newStream(GenericConnectionPoolCallbacks& callbacks) {
 
 void HttpConnPool::onPoolFailure(ConnectionPool::PoolFailureReason reason,
                                  absl::string_view failure_reason,
-                                 Upstream::HostDescriptionConstSharedPtr host) {
+                                 Upstream::HostDescriptionConstSharedPtr host,
+                                 Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   upstream_handle_ = nullptr;
-  callbacks_->onGenericPoolFailure(reason, failure_reason, host);
+  callbacks_->onGenericPoolFailure(reason, failure_reason, host, ssl_info);
 }
 
 void HttpConnPool::onUpstreamHostSelected(Upstream::HostDescriptionConstSharedPtr host,

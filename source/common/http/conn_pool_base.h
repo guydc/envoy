@@ -85,9 +85,10 @@ public:
                                                 bool can_send_early_data) override;
   void onPoolFailure(const Upstream::HostDescriptionConstSharedPtr& host_description,
                      absl::string_view failure_reason, ConnectionPool::PoolFailureReason reason,
-                     Envoy::ConnectionPool::AttachContext& context) override {
+                     Envoy::ConnectionPool::AttachContext& context,
+                     Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr) override {
     auto* callbacks = typedContext<HttpAttachContext>(context).callbacks_;
-    callbacks->onPoolFailure(reason, failure_reason, host_description);
+    callbacks->onPoolFailure(reason, failure_reason, host_description, ssl_info);
   }
   void onPoolReady(Envoy::ConnectionPool::ActiveClient& client,
                    Envoy::ConnectionPool::AttachContext& context) override;
@@ -144,6 +145,13 @@ public:
 
   void initializeReadFilters() override { codec_client_->initializeReadFilters(); }
   absl::optional<Http::Protocol> protocol() const override { return codec_client_->protocol(); }
+  Ssl::ConnectionInfoConstSharedPtr sslConnectionInfo() const override {
+    if (codec_client_ != nullptr) {
+      const auto& conn_info = codec_client_->streamInfo().downstreamAddressProvider();
+      return conn_info.sslConnection();
+    }
+    return nullptr;
+  }
   void close() override { codec_client_->close(); }
   virtual Http::RequestEncoder& newStreamEncoder(Http::ResponseDecoder& response_decoder) PURE;
   virtual Http::RequestEncoder&

@@ -477,7 +477,8 @@ public:
                           Ssl::ConnectionInfoConstSharedPtr ssl_info) override;
   void onGenericPoolFailure(ConnectionPool::PoolFailureReason reason,
                             absl::string_view failure_reason,
-                            Upstream::HostDescriptionConstSharedPtr host) override;
+                            Upstream::HostDescriptionConstSharedPtr host,
+                            Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr) override;
 
   // Upstream::LoadBalancerContext
   const Router::MetadataMatchCriteria* metadataMatchCriteria() override;

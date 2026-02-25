@@ -596,7 +596,12 @@ void ConnPoolImplBase::onConnectionEvent(ActiveClient& client, absl::string_view
       // what to do with the stream.
       // NOTE: We move the existing pending streams to a temporary list. This is done so that
       //       if retry logic submits a new stream to the pool, we don't fail it inline.
-      purgePendingStreams(client.real_host_description_, failure_reason, reason);
+
+      // Extract SSL connection info if available before purging streams
+      // This allows access logs to see TLS info even when validation fails
+      Ssl::ConnectionInfoConstSharedPtr ssl_info = client.sslConnectionInfo();
+
+      purgePendingStreams(client.real_host_description_, failure_reason, reason, ssl_info);
       // See if we should preconnect based on active connections.
       if (!is_draining_for_deletion_) {
         tryCreateNewConnections();
@@ -710,7 +715,8 @@ void PendingStream::cancel(Envoy::ConnectionPool::CancelPolicy policy) {
 
 void ConnPoolImplBase::purgePendingStreams(
     const Upstream::HostDescriptionConstSharedPtr& host_description,
-    absl::string_view failure_reason, ConnectionPool::PoolFailureReason reason) {
+    absl::string_view failure_reason, ConnectionPool::PoolFailureReason reason,
+    Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   // NOTE: We move the existing pending streams to a temporary list. This is done so that
   //       if retry logic submits a new stream to the pool, we don't fail it inline.
   cluster_connectivity_state_.decrPendingStreams(pending_streams_.size());
@@ -719,7 +725,7 @@ void ConnPoolImplBase::purgePendingStreams(
     PendingStreamPtr stream =
         pending_streams_to_purge_.front()->removeFromList(pending_streams_to_purge_);
     host_->cluster().trafficStats()->upstream_rq_pending_failure_eject_.inc();
-    onPoolFailure(host_description, failure_reason, reason, stream->context());
+    onPoolFailure(host_description, failure_reason, reason, stream->context(), ssl_info);
   }
 }
 

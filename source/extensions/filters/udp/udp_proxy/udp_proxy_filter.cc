@@ -956,11 +956,19 @@ void TunnelingConnectionPoolImpl::newStream(HttpStreamCallbacks& callbacks) {
 
 void TunnelingConnectionPoolImpl::onPoolFailure(Http::ConnectionPool::PoolFailureReason reason,
                                                 absl::string_view failure_reason,
-                                                Upstream::HostDescriptionConstSharedPtr host) {
+                                                Upstream::HostDescriptionConstSharedPtr host,
+                                                Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   upstream_handle_ = nullptr;
   // Writing to downstream_info_ before calling onStreamFailure, as the session could be potentially
   // removed by onStreamFailure, which will cause downstream_info_ to be freed.
   downstream_info_.upstreamInfo()->setUpstreamHost(host);
+
+  // Store upstream SSL connection info if available, even on failure
+  // This allows access logs and observability to inspect TLS info when validation fails
+  if (ssl_info) {
+    downstream_info_.upstreamInfo()->setUpstreamSslConnection(ssl_info);
+  }
+
   downstream_info_.upstreamInfo()->setUpstreamTransportFailureReason(failure_reason);
   callbacks_->onStreamFailure(reason, failure_reason, *host);
 }

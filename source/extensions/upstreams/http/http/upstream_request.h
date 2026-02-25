@@ -41,7 +41,8 @@ public:
   // Http::ConnectionPool::Callbacks
   void onPoolFailure(ConnectionPool::PoolFailureReason reason,
                      absl::string_view transport_failure_reason,
-                     Upstream::HostDescriptionConstSharedPtr host) override;
+                     Upstream::HostDescriptionConstSharedPtr host,
+                     Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr) override;
   void onPoolReady(Envoy::Http::RequestEncoder& callbacks_encoder,
                    Upstream::HostDescriptionConstSharedPtr host, StreamInfo::StreamInfo& info,
                    absl::optional<Envoy::Http::Protocol> protocol) override;

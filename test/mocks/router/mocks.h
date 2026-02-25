@@ -754,7 +754,8 @@ public:
   MOCK_METHOD(void, onPoolFailure,
               (Http::ConnectionPool::PoolFailureReason reason,
                absl::string_view transport_failure_reason,
-               Upstream::HostDescriptionConstSharedPtr host));
+               Upstream::HostDescriptionConstSharedPtr host,
+               Ssl::ConnectionInfoConstSharedPtr ssl_info));
   MOCK_METHOD(void, onPoolReady,
               (std::unique_ptr<GenericUpstream> && upstream,
                Upstream::HostDescriptionConstSharedPtr host,

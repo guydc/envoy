@@ -50,9 +50,10 @@ bool HttpConnPool::cancelAnyPendingStream() {
 
 void HttpConnPool::onPoolFailure(ConnectionPool::PoolFailureReason reason,
                                  absl::string_view transport_failure_reason,
-                                 Upstream::HostDescriptionConstSharedPtr host) {
+                                 Upstream::HostDescriptionConstSharedPtr host,
+                                 Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   conn_pool_stream_handle_ = nullptr;
-  callbacks_->onPoolFailure(reason, transport_failure_reason, host);
+  callbacks_->onPoolFailure(reason, transport_failure_reason, host, ssl_info);
 }
 
 void HttpConnPool::onPoolReady(Envoy::Http::RequestEncoder& request_encoder,

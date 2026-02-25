@@ -75,7 +75,8 @@ public:
       // ConnectionPool::Callbacks
       void onPoolFailure(ConnectionPool::PoolFailureReason reason,
                          absl::string_view transport_failure_reason,
-                         Upstream::HostDescriptionConstSharedPtr host) override;
+                         Upstream::HostDescriptionConstSharedPtr host,
+                         Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr) override;
       void onPoolReady(RequestEncoder& encoder, Upstream::HostDescriptionConstSharedPtr host,
                        StreamInfo::StreamInfo& info,
                        absl::optional<Http::Protocol> protocol) override;
@@ -115,7 +116,8 @@ public:
     void onConnectionAttemptFailed(ConnectionAttemptCallbacks* attempt,
                                    ConnectionPool::PoolFailureReason reason,
                                    absl::string_view transport_failure_reason,
-                                   Upstream::HostDescriptionConstSharedPtr host);
+                                   Upstream::HostDescriptionConstSharedPtr host,
+                                   Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr);
 
     // Called by a ConnectionAttempt when the underlying pool is ready.
     void onConnectionAttemptReady(ConnectionAttemptCallbacks* attempt, RequestEncoder& encoder,
@@ -127,7 +129,8 @@ public:
     // callback subscribers know the connect attempt failed.
     void signalFailureAndDeleteSelf(ConnectionPool::PoolFailureReason reason,
                                     absl::string_view transport_failure_reason,
-                                    Upstream::HostDescriptionConstSharedPtr host);
+                                    Upstream::HostDescriptionConstSharedPtr host,
+                                    Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr);
 
     // Called if the initial HTTP/3 connection fails.
     // Returns true if an HTTP/3 happy eyeballs attempt can be kicked off

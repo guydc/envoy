@@ -582,8 +582,16 @@ void UpstreamRequest::recordConnectionPoolCallbackLatency() {
 
 void UpstreamRequest::onPoolFailure(ConnectionPool::PoolFailureReason reason,
                                     absl::string_view transport_failure_reason,
-                                    Upstream::HostDescriptionConstSharedPtr host) {
+                                    Upstream::HostDescriptionConstSharedPtr host,
+                                    Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   recordConnectionPoolCallbackLatency();
+
+  // Store upstream SSL connection info if available, even on failure
+  // This allows access logs and attributes to inspect TLS info when validation fails
+  if (ssl_info) {
+    stream_info_.upstreamInfo()->setUpstreamSslConnection(ssl_info);
+  }
+
   Http::StreamResetReason reset_reason = [](ConnectionPool::PoolFailureReason reason) {
     switch (reason) {
     case ConnectionPool::PoolFailureReason::Overflow:

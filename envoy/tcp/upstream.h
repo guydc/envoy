@@ -115,10 +115,13 @@ public:
    * matching `reason` and `failure_reason`).
    * @param host supplies the description of the host that caused the failure. This may be nullptr
    *             if no host was involved in the failure (for example overflow).
+   * @param ssl_info supplies the SSL connection info if available, even when validation fails.
+   *                 This allows access logs and observability to inspect TLS info on failures.
    */
   virtual void onGenericPoolFailure(ConnectionPool::PoolFailureReason reason,
                                     absl::string_view failure_reason,
-                                    Upstream::HostDescriptionConstSharedPtr host) PURE;
+                                    Upstream::HostDescriptionConstSharedPtr host,
+                                    Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr) PURE;
 };
 
 // Interface for a generic Upstream, which can communicate with a TCP or HTTP

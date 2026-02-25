@@ -18,7 +18,8 @@ namespace ConnectionPool {
 class MockCallbacks : public Callbacks {
   MOCK_METHOD(void, onPoolFailure,
               (PoolFailureReason reason, absl::string_view details,
-               Upstream::HostDescriptionConstSharedPtr host));
+               Upstream::HostDescriptionConstSharedPtr host,
+               Ssl::ConnectionInfoConstSharedPtr ssl_info));
   MOCK_METHOD(void, onPoolReady,
               (ConnectionDataPtr && conn, Upstream::HostDescriptionConstSharedPtr host));
 };

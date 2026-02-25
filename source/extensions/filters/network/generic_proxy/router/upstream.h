@@ -200,7 +200,8 @@ public:
 
   // Tcp::ConnectionPool::Callbacks
   void onPoolFailure(ConnectionPool::PoolFailureReason reason, absl::string_view transport_reason,
-                     Upstream::HostDescriptionConstSharedPtr host) override {
+                     Upstream::HostDescriptionConstSharedPtr host,
+                     Ssl::ConnectionInfoConstSharedPtr) override {
     ENVOY_LOG(debug, "generic proxy upstream manager: on upstream connection failure (host: {})",
               host != nullptr ? host->address()->asStringView() : absl::string_view{});
     tcp_pool_handle_ = nullptr;

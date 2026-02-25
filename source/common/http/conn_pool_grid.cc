@@ -99,9 +99,9 @@ ConnectivityGrid::WrapperCallbacks::ConnectionAttemptCallbacks::newStream() {
 
 void ConnectivityGrid::WrapperCallbacks::ConnectionAttemptCallbacks::onPoolFailure(
     ConnectionPool::PoolFailureReason reason, absl::string_view transport_failure_reason,
-    Upstream::HostDescriptionConstSharedPtr host) {
+    Upstream::HostDescriptionConstSharedPtr host, Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   cancellable_ = nullptr; // Attempt failed and can no longer be cancelled.
-  parent_.onConnectionAttemptFailed(this, reason, transport_failure_reason, host);
+  parent_.onConnectionAttemptFailed(this, reason, transport_failure_reason, host, ssl_info);
 }
 
 ConnectivityGrid::StreamCreationResult
@@ -135,7 +135,8 @@ bool ConnectivityGrid::WrapperCallbacks::shouldAttemptSecondHttp3Connection() {
 
 void ConnectivityGrid::WrapperCallbacks::onConnectionAttemptFailed(
     ConnectionAttemptCallbacks* attempt, ConnectionPool::PoolFailureReason reason,
-    absl::string_view transport_failure_reason, Upstream::HostDescriptionConstSharedPtr host) {
+    absl::string_view transport_failure_reason, Upstream::HostDescriptionConstSharedPtr host,
+    Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   ENVOY_LOG(trace, "{} pool failed to create connection to host '{}'.",
             describePool(attempt->pool()), host->hostname());
   grid_.dispatcher_.deferredDelete(attempt->removeFromList(connection_attempts_));
@@ -171,12 +172,12 @@ void ConnectivityGrid::WrapperCallbacks::onConnectionAttemptFailed(
 
   // If this point is reached, all pools have been tried. Pass the pool failure up to the
   // original caller, if the caller hasn't already been notified.
-  signalFailureAndDeleteSelf(reason, transport_failure_reason, host);
+  signalFailureAndDeleteSelf(reason, transport_failure_reason, host, ssl_info);
 }
 
 void ConnectivityGrid::WrapperCallbacks::signalFailureAndDeleteSelf(
     ConnectionPool::PoolFailureReason reason, absl::string_view transport_failure_reason,
-    Upstream::HostDescriptionConstSharedPtr host) {
+    Upstream::HostDescriptionConstSharedPtr host, Ssl::ConnectionInfoConstSharedPtr ssl_info) {
   ConnectionPool::Callbacks* callbacks = inner_callbacks_;
   inner_callbacks_ = nullptr;
   deleteThis();
@@ -191,7 +192,7 @@ void ConnectivityGrid::WrapperCallbacks::signalFailureAndDeleteSelf(
           static_cast<int>(prev_pool_failure_reason_.value()), prev_pool_transport_failure_reason_);
       transport_failure_reason = failure_str;
     }
-    callbacks->onPoolFailure(reason, transport_failure_reason, host);
+    callbacks->onPoolFailure(reason, transport_failure_reason, host, ssl_info);
   }
 }
 

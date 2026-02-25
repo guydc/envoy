@@ -111,6 +111,12 @@ public:
 
   void initializeReadFilters() override { connection_->initializeReadFilters(); }
   absl::optional<Http::Protocol> protocol() const override { return {}; }
+  Ssl::ConnectionInfoConstSharedPtr sslConnectionInfo() const override {
+    if (connection_ != nullptr) {
+      return connection_->ssl();
+    }
+    return nullptr;
+  }
   void close() override;
   uint32_t numActiveStreams() const override { return callbacks_ ? 1 : 0; }
   bool closingWithIncompleteStream() const override { return false; }
@@ -177,7 +183,8 @@ public:
                    Envoy::ConnectionPool::AttachContext& context) override;
   void onPoolFailure(const Upstream::HostDescriptionConstSharedPtr& host_description,
                      absl::string_view failure_reason, ConnectionPool::PoolFailureReason reason,
-                     Envoy::ConnectionPool::AttachContext& context) override;
+                     Envoy::ConnectionPool::AttachContext& context,
+                     Ssl::ConnectionInfoConstSharedPtr ssl_info = nullptr) override;
   bool enforceMaxRequests() const override { return false; }
   // These two functions exist for testing parity between old and new Tcp Connection Pools.
   virtual void onConnReleased(Envoy::ConnectionPool::ActiveClient&) {}
