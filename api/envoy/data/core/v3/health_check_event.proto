@@ -87,6 +87,10 @@ message HealthCheckEjectUnhealthy {
 
   // The type of failure that caused this ejection.
   HealthCheckFailureType failure_type = 1 [(validate.rules).enum = {defined_only: true}];
+
+  // A human-readable description of why this host was ejected.
+  // Examples: ``HTTP health check failed with status 503``, ``connection failure``, ``timeout``.
+  string failure_reason = 2;
 }
 
 message HealthCheckAddHealthy {
@@ -111,6 +115,10 @@ message HealthCheckFailure {
 
   // Whether this event is the result of the first ever health check on a host.
   bool first_check = 2;
+
+  // A human-readable description of the failure.
+  // Examples: ``HTTP health check failed with status 503``, ``connection failure``, ``timeout``.
+  string failure_reason = 3;
 }
 
 message DegradedHealthyHost {

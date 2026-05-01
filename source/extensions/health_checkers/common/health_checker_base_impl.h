@@ -15,6 +15,8 @@
 #include "source/common/common/matchers.h"
 #include "source/common/network/transport_socket_options_impl.h"
 
+#include "absl/strings/string_view.h"
+
 namespace Envoy {
 namespace Upstream {
 
@@ -60,7 +62,7 @@ protected:
   public:
     ~ActiveHealthCheckSession() override;
     HealthTransition setUnhealthy(envoy::data::core::v3::HealthCheckFailureType type,
-                                  bool retriable);
+                                  bool retriable, absl::string_view failure_reason = "");
     void onDeferredDeleteBase();
     void start() { onInitialInterval(); }
 
@@ -68,7 +70,8 @@ protected:
     ActiveHealthCheckSession(HealthCheckerImplBase& parent, HostSharedPtr host);
 
     void handleSuccess(bool degraded = false);
-    void handleFailure(envoy::data::core::v3::HealthCheckFailureType type, bool retriable = false);
+    void handleFailure(envoy::data::core::v3::HealthCheckFailureType type, bool retriable = false,
+                       absl::string_view failure_reason = "");
 
     HostSharedPtr host_;
 
@@ -105,6 +108,7 @@ protected:
 
   const bool always_log_health_check_failures_;
   const bool always_log_health_check_success_;
+  const bool report_failure_reason_;
   const Cluster& cluster_;
   Event::Dispatcher& dispatcher_;
   const std::chrono::milliseconds timeout_;

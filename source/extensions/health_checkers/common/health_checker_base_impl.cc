@@ -9,6 +9,8 @@
 #include "source/common/router/router.h"
 #include "source/common/runtime/runtime_features.h"
 
+#include "absl/strings/string_view.h"
+
 namespace Envoy {
 namespace Upstream {
 
@@ -19,7 +21,8 @@ HealthCheckerImplBase::HealthCheckerImplBase(const Cluster& cluster,
                                              Random::RandomGenerator& random,
                                              HealthCheckEventLoggerPtr&& event_logger)
     : always_log_health_check_failures_(config.always_log_health_check_failures()),
-      always_log_health_check_success_(config.always_log_health_check_success()), cluster_(cluster),
+      always_log_health_check_success_(config.always_log_health_check_success()),
+      report_failure_reason_(config.report_failure_reason()), cluster_(cluster),
       dispatcher_(dispatcher), timeout_(PROTOBUF_GET_MS_REQUIRED(config, timeout)),
       unhealthy_threshold_(PROTOBUF_GET_WRAPPED_REQUIRED(config, unhealthy_threshold)),
       healthy_threshold_(PROTOBUF_GET_WRAPPED_REQUIRED(config, healthy_threshold)),
@@ -367,7 +370,8 @@ bool networkHealthCheckFailureType(envoy::data::core::v3::HealthCheckFailureType
 } // namespace
 
 HealthTransition HealthCheckerImplBase::ActiveHealthCheckSession::setUnhealthy(
-    envoy::data::core::v3::HealthCheckFailureType type, bool retriable) {
+    envoy::data::core::v3::HealthCheckFailureType type, bool retriable,
+    absl::string_view failure_reason) {
   // If we are unhealthy, reset the # of healthy to zero.
   num_healthy_ = 0;
 
@@ -379,7 +383,8 @@ HealthTransition HealthCheckerImplBase::ActiveHealthCheckSession::setUnhealthy(
       parent_.decHealthy();
       changed_state = HealthTransition::Changed;
       if (parent_.event_logger_) {
-        parent_.event_logger_->logEjectUnhealthy(parent_.healthCheckerType(), host_, type);
+        parent_.event_logger_->logEjectUnhealthy(parent_.healthCheckerType(), host_, type,
+                                                 failure_reason);
       }
     } else {
       changed_state = HealthTransition::ChangePending;
@@ -399,7 +404,8 @@ HealthTransition HealthCheckerImplBase::ActiveHealthCheckSession::setUnhealthy(
   changed_state = clearPendingFlag(changed_state);
 
   if ((first_check_ || parent_.always_log_health_check_failures_) && parent_.event_logger_) {
-    parent_.event_logger_->logUnhealthy(parent_.healthCheckerType(), host_, type, first_check_);
+    parent_.event_logger_->logUnhealthy(parent_.healthCheckerType(), host_, type, first_check_,
+                                        failure_reason);
   }
 
   parent_.stats_.failure_.inc();
@@ -415,8 +421,10 @@ HealthTransition HealthCheckerImplBase::ActiveHealthCheckSession::setUnhealthy(
 }
 
 void HealthCheckerImplBase::ActiveHealthCheckSession::handleFailure(
-    envoy::data::core::v3::HealthCheckFailureType type, bool retriable) {
-  HealthTransition changed_state = setUnhealthy(type, retriable);
+    envoy::data::core::v3::HealthCheckFailureType type, bool retriable,
+    absl::string_view failure_reason) {
+  HealthTransition changed_state =
+      setUnhealthy(type, retriable, parent_.report_failure_reason_ ? failure_reason : "");
   // It's possible that the previous call caused this session to be deferred deleted.
   if (timeout_timer_ != nullptr) {
     timeout_timer_->disableTimer();
@@ -447,7 +455,7 @@ void HealthCheckerImplBase::ActiveHealthCheckSession::onIntervalBase() {
 
 void HealthCheckerImplBase::ActiveHealthCheckSession::onTimeoutBase() {
   onTimeout();
-  handleFailure(envoy::data::core::v3::NETWORK_TIMEOUT);
+  handleFailure(envoy::data::core::v3::NETWORK_TIMEOUT, /*retriable=*/false, "timeout");
 }
 
 void HealthCheckerImplBase::ActiveHealthCheckSession::onInitialInterval() {

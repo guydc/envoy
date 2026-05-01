@@ -74,7 +74,7 @@ TEST(HealthCheckEventFileSink, logTest) {
       "{\"health_checker_type\":\"HTTP\",\"host\":{\"socket_address\":{"
       "\"protocol\":\"TCP\",\"address\":\"10.0.0.1\",\"port_value\":443,\"resolver_name\":\"\","
       "\"ipv4_compat\":false,\"network_namespace_filepath\":\"\"}},\"cluster_name\":\"fake_"
-      "cluster\",\"eject_unhealthy_event\":{\"failure_type\":\"ACTIVE\"},"
+      "cluster\",\"eject_unhealthy_event\":{\"failure_type\":\"ACTIVE\",\"failure_reason\":\"\"},"
       "\"timestamp\":\"2009-02-13T23:31:31.234Z\"}\n");
 
   envoy::data::core::v3::HealthCheckEvent add_event;

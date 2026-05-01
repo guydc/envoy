@@ -321,8 +321,8 @@ void HttpHealthCheckerImpl::HttpActiveHealthCheckSession::onInterval() {
   }
 }
 
-void HttpHealthCheckerImpl::HttpActiveHealthCheckSession::onResetStream(Http::StreamResetReason,
-                                                                        absl::string_view) {
+void HttpHealthCheckerImpl::HttpActiveHealthCheckSession::onResetStream(
+    Http::StreamResetReason reason, absl::string_view transport_failure_reason) {
   request_in_flight_ = false;
   ENVOY_CONN_LOG(debug, "connection/stream error health_flags={}", *client_,
                  HostUtility::healthFlagsToString(*host_));
@@ -334,7 +334,58 @@ void HttpHealthCheckerImpl::HttpActiveHealthCheckSession::onResetStream(Http::St
     client_->close(Network::ConnectionCloseType::Abort);
   }
 
-  handleFailure(envoy::data::core::v3::NETWORK);
+  // Build a descriptive failure reason. Transport-layer detail (e.g. TLS error) takes
+  // priority; otherwise fall back to the connection-level reason, then the reset reason enum.
+  absl::string_view failure_reason = transport_failure_reason.empty()
+                                         ? client_->connectionFailureReason()
+                                         : transport_failure_reason;
+  std::string failure_reason_str;
+  if (failure_reason.empty()) {
+    switch (reason) {
+    case Http::StreamResetReason::LocalReset:
+      failure_reason_str = "local reset";
+      break;
+    case Http::StreamResetReason::LocalRefusedStreamReset:
+      failure_reason_str = "local refused stream reset";
+      break;
+    case Http::StreamResetReason::RemoteReset:
+      failure_reason_str = "remote reset";
+      break;
+    case Http::StreamResetReason::RemoteRefusedStreamReset:
+      failure_reason_str = "remote refused stream reset";
+      break;
+    case Http::StreamResetReason::LocalConnectionFailure:
+      failure_reason_str = "local connection failure";
+      break;
+    case Http::StreamResetReason::RemoteConnectionFailure:
+      failure_reason_str = "remote connection failure";
+      break;
+    case Http::StreamResetReason::ConnectionTimeout:
+      failure_reason_str = "connection timeout";
+      break;
+    case Http::StreamResetReason::ConnectionTermination:
+      failure_reason_str = "connection termination";
+      break;
+    case Http::StreamResetReason::Overflow:
+      failure_reason_str = "overflow";
+      break;
+    case Http::StreamResetReason::ConnectError:
+      failure_reason_str = "connect error";
+      break;
+    case Http::StreamResetReason::ProtocolError:
+      failure_reason_str = "protocol error";
+      break;
+    case Http::StreamResetReason::OverloadManager:
+      failure_reason_str = "overload manager";
+      break;
+    case Http::StreamResetReason::Http1PrematureUpstreamHalfClose:
+      failure_reason_str = "premature upstream half-close";
+      break;
+    }
+  }
+
+  handleFailure(envoy::data::core::v3::NETWORK, /*retriable=*/false,
+                failure_reason.empty() ? failure_reason_str : failure_reason);
 }
 
 void HttpHealthCheckerImpl::HttpActiveHealthCheckSession::onGoAway(
@@ -352,7 +403,7 @@ void HttpHealthCheckerImpl::HttpActiveHealthCheckSession::onGoAway(
 
   if (request_in_flight_) {
     // Record this as a failed health check.
-    handleFailure(envoy::data::core::v3::NETWORK);
+    handleFailure(envoy::data::core::v3::NETWORK, /*retriable=*/false, "connection failure");
   }
 
   if (client_) {
@@ -431,12 +482,18 @@ void HttpHealthCheckerImpl::HttpActiveHealthCheckSession::onResponseComplete() {
   case HealthCheckResult::Degraded:
     handleSuccess(true);
     break;
-  case HealthCheckResult::Failed:
-    handleFailure(envoy::data::core::v3::ACTIVE, /*retriable=*/false);
+  case HealthCheckResult::Failed: {
+    const uint64_t response_code = Http::Utility::getResponseStatus(*response_headers_);
+    handleFailure(envoy::data::core::v3::ACTIVE, /*retriable=*/false,
+                  absl::StrCat("HTTP health check failed with status ", response_code));
     break;
-  case HealthCheckResult::Retriable:
-    handleFailure(envoy::data::core::v3::ACTIVE, /*retriable=*/true);
+  }
+  case HealthCheckResult::Retriable: {
+    const uint64_t response_code = Http::Utility::getResponseStatus(*response_headers_);
+    handleFailure(envoy::data::core::v3::ACTIVE, /*retriable=*/true,
+                  absl::StrCat("HTTP health check failed with status ", response_code));
     break;
+  }
   }
 
   if (shouldClose()) {

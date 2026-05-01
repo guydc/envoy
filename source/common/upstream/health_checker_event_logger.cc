@@ -7,26 +7,38 @@
 
 #include "source/common/network/utility.h"
 
+#include "absl/strings/string_view.h"
+
 namespace Envoy {
 namespace Upstream {
 
 void HealthCheckEventLoggerImpl::logEjectUnhealthy(
     envoy::data::core::v3::HealthCheckerType health_checker_type,
     const HostDescriptionConstSharedPtr& host,
-    envoy::data::core::v3::HealthCheckFailureType failure_type) {
-  createHealthCheckEvent(health_checker_type, *host, [&failure_type](auto& event) {
-    event.mutable_eject_unhealthy_event()->set_failure_type(failure_type);
+    envoy::data::core::v3::HealthCheckFailureType failure_type, absl::string_view failure_reason) {
+  createHealthCheckEvent(health_checker_type, *host, [&failure_type, &failure_reason](auto& event) {
+    auto* ev = event.mutable_eject_unhealthy_event();
+    ev->set_failure_type(failure_type);
+    if (!failure_reason.empty()) {
+      ev->set_failure_reason(std::string(failure_reason));
+    }
   });
 }
 
 void HealthCheckEventLoggerImpl::logUnhealthy(
     envoy::data::core::v3::HealthCheckerType health_checker_type,
     const HostDescriptionConstSharedPtr& host,
-    envoy::data::core::v3::HealthCheckFailureType failure_type, bool first_check) {
-  createHealthCheckEvent(health_checker_type, *host, [&first_check, &failure_type](auto& event) {
-    event.mutable_health_check_failure_event()->set_failure_type(failure_type);
-    event.mutable_health_check_failure_event()->set_first_check(first_check);
-  });
+    envoy::data::core::v3::HealthCheckFailureType failure_type, bool first_check,
+    absl::string_view failure_reason) {
+  createHealthCheckEvent(health_checker_type, *host,
+                         [&first_check, &failure_type, &failure_reason](auto& event) {
+                           auto* ev = event.mutable_health_check_failure_event();
+                           ev->set_failure_type(failure_type);
+                           ev->set_first_check(first_check);
+                           if (!failure_reason.empty()) {
+                             ev->set_failure_reason(std::string(failure_reason));
+                           }
+                         });
 }
 
 void HealthCheckEventLoggerImpl::logAddHealthy(

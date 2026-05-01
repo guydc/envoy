@@ -5,6 +5,17 @@ behavior_changes:
 
 minor_behavior_changes:
 # *Changes that may cause incompatibilities for some users, but should not for most*
+- area: health_check
+  change: |
+    Health check failure event log messages (written via
+    :ref:`event_logger <envoy_v3_api_field_config.core.v3.HealthCheck.event_logger>`) now include
+    a ``failure_reason`` field in :ref:`HealthCheckFailure
+    <envoy_v3_api_msg_data.core.v3.HealthCheckFailure>` and :ref:`HealthCheckEjectUnhealthy
+    <envoy_v3_api_msg_data.core.v3.HealthCheckEjectUnhealthy>` messages. The field is always
+    present in the JSON output as ``"failure_reason":""`` due to the serialization format used,
+    even when :ref:`report_failure_reason
+    <envoy_v3_api_field_config.core.v3.HealthCheck.report_failure_reason>` is not set. Consumers
+    that parse health check event log JSON should be prepared to handle this new field.
 - area: router
   change: |
     The upstream transport failure reason (e.g. TLS certificate validation errors) is no longer included
@@ -72,6 +83,18 @@ removed_config_or_runtime:
 # *Normally occurs at the end of the* :ref:`deprecation period <deprecated>`
 
 new_features:
+- area: health_check
+  change: |
+    Added ``failure_reason`` field to :ref:`HealthCheckFailure
+    <envoy_v3_api_msg_data.core.v3.HealthCheckFailure>` and :ref:`HealthCheckEjectUnhealthy
+    <envoy_v3_api_msg_data.core.v3.HealthCheckEjectUnhealthy>` health check event log messages.
+    For HTTP health checkers, ``failure_reason`` is populated with the HTTP response status code
+    (e.g. ``HTTP health check failed with status 503``), the stream/connection reset reason
+    (e.g. ``remote reset``, ``protocol error``, ``connection timeout``), or the transport-layer
+    failure detail when available (e.g. TLS error strings). Timeout failures are recorded as
+    ``timeout``. This behavior is opt-in and can be enabled by setting
+    :ref:`report_failure_reason <envoy_v3_api_field_config.core.v3.HealthCheck.report_failure_reason>`
+    to ``true`` in the health check configuration.
 - area: stat_sinks
   change: |
     Added :ref:`max_data_points_per_request

@@ -6,6 +6,8 @@
 #include "envoy/data/core/v3/health_check_event.pb.h"
 #include "envoy/upstream/upstream.h"
 
+#include "absl/strings/string_view.h"
+
 namespace Envoy {
 namespace Upstream {
 
@@ -74,10 +76,12 @@ public:
    * @param health_checker_type supplies the type of health checker that generated the event.
    * @param host supplies the host that generated the event.
    * @param failure_type supplies the type of health check failure.
+   * @param failure_reason human-readable description of the failure.
    */
   virtual void logEjectUnhealthy(envoy::data::core::v3::HealthCheckerType health_checker_type,
                                  const HostDescriptionConstSharedPtr& host,
-                                 envoy::data::core::v3::HealthCheckFailureType failure_type) PURE;
+                                 envoy::data::core::v3::HealthCheckFailureType failure_type,
+                                 absl::string_view failure_reason) PURE;
 
   /**
    * Log an unhealthy host event.
@@ -85,11 +89,12 @@ public:
    * @param host supplies the host that generated the event.
    * @param failure_type supplies the type of health check failure.
    * @param first_check whether this is a failure on the first health check for this host.
+   * @param failure_reason human-readable description of the failure.
    */
   virtual void logUnhealthy(envoy::data::core::v3::HealthCheckerType health_checker_type,
                             const HostDescriptionConstSharedPtr& host,
                             envoy::data::core::v3::HealthCheckFailureType failure_type,
-                            bool first_check) PURE;
+                            bool first_check, absl::string_view failure_reason) PURE;
 
   /**
    * Log a healthy host addition event.

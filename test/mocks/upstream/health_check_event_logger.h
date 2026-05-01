@@ -9,6 +9,7 @@
 #include "envoy/data/core/v3/health_check_event.pb.h"
 #include "envoy/upstream/health_checker.h"
 
+#include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -18,7 +19,7 @@ class MockHealthCheckEventLogger : public HealthCheckEventLogger {
 public:
   MOCK_METHOD(void, logEjectUnhealthy,
               (envoy::data::core::v3::HealthCheckerType, const HostDescriptionConstSharedPtr&,
-               envoy::data::core::v3::HealthCheckFailureType));
+               envoy::data::core::v3::HealthCheckFailureType, absl::string_view));
   MOCK_METHOD(void, logAddHealthy,
               (envoy::data::core::v3::HealthCheckerType, const HostDescriptionConstSharedPtr&,
                bool));
@@ -26,7 +27,7 @@ public:
               (envoy::data::core::v3::HealthCheckerType, const HostDescriptionConstSharedPtr&));
   MOCK_METHOD(void, logUnhealthy,
               (envoy::data::core::v3::HealthCheckerType, const HostDescriptionConstSharedPtr&,
-               envoy::data::core::v3::HealthCheckFailureType, bool));
+               envoy::data::core::v3::HealthCheckFailureType, bool, absl::string_view));
   MOCK_METHOD(void, logDegraded,
               (envoy::data::core::v3::HealthCheckerType, const HostDescriptionConstSharedPtr&));
   MOCK_METHOD(void, logNoLongerDegraded,

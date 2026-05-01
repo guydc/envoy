@@ -63,7 +63,7 @@ message HealthStatusSet {
       [(validate.rules).repeated = {items {enum {defined_only: true}}}];
 }
 
-// [#next-free-field: 27]
+// [#next-free-field: 28]
 message HealthCheck {
   option (udpa.annotations.versioning).previous_message_type = "envoy.api.v2.core.HealthCheck";
 
@@ -405,6 +405,11 @@ message HealthCheck {
   // if it is the first successful health check, or if the healthy threshold is reached.
   // The default value is false.
   bool always_log_health_check_success = 26;
+
+  // If set to true, a ``failure_reason`` field is populated in health check failure event log
+  // messages with a human-readable description of the failure (e.g. HTTP status code, TLS error,
+  // stream reset reason). The default is false. Set to true to enable this field.
+  bool report_failure_reason = 27;
 
   // This allows overriding the cluster TLS settings, just for health check connections.
   TlsOptions tls_options = 21;
